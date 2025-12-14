@@ -1,9 +1,16 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DeckBuilder from "./pages/DeckBuilder";
 import { Card } from "./domain/decks/DeckEngine";
 
 type Mode = "player" | "gm";
 type Route = "hub" | "player" | "player-ops" | "gm" | "gm-ops" | "chud" | "csmatrix";
+type HubCard = {
+  id: Route;
+  title: string;
+  description: string;
+  audience: Mode;
+  subtitle?: string;
+};
 
 const MODE_KEY = "collapse.mode";
 const buildPath = (path: string) => `${import.meta.env.BASE_URL}${path}`;
@@ -34,24 +41,33 @@ const deriveMode = (): Mode => {
   return saved ?? "player";
 };
 
-const SubAppFrame: React.FC<{ title: string; src: string; onBack: () => void; note?: string }> = ({
+const SubAppFrame: React.FC<{ title: string; src: string; onBack: () => void; note?: string; actions?: React.ReactNode; actionsClassName?: string; frameRef?: React.Ref<HTMLIFrameElement>; onFrameLoad?: () => void }> = ({
   title,
   src,
   onBack,
   note,
+  actions,
+  actionsClassName,
+  frameRef,
+  onFrameLoad,
 }) => (
   <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
     <header className="topbar">
-      <button className="ghost-btn" onClick={onBack}>← Back to hub</button>
+      <button className="ghost-btn ghost-btn-icon" onClick={onBack} aria-label="Back to hub">
+        <span aria-hidden="true">←</span>
+      </button>
       <div className="topbar-title">
         <div className="muted" style={{ fontSize: "0.85rem" }}>Collapse Full Build</div>
         <strong>{title}</strong>
       </div>
+      {actions ? <div className={actionsClassName || "topbar-actions"}>{actions}</div> : null}
     </header>
     <div className="subapp-frame">
       <iframe
         title={title}
         src={src}
+        ref={frameRef}
+        onLoad={onFrameLoad}
         style={{ border: "none" }}
         allow="fullscreen"
         sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-pointer-lock"
@@ -67,8 +83,8 @@ const PlayerShell: React.FC<{ onBack: () => void; children: React.ReactNode; chu
   return (
   <div className="player-shell" style={{ minHeight: "100vh", background: "var(--bg-dark)" }}>
     <header className="topbar">
-      <button className="ghost-btn" onClick={onBack} aria-label="Back to hub">
-        ← Back to hub
+      <button className="ghost-btn ghost-btn-icon" onClick={onBack} aria-label="Back to hub">
+        <span aria-hidden="true">←</span>
       </button>
       <div className="topbar-title">
         <div className="muted" style={{ fontSize: "0.85rem" }}>Collapse Full Build</div>
@@ -84,15 +100,15 @@ const PlayerShell: React.FC<{ onBack: () => void; children: React.ReactNode; chu
   );
 };
 
-const GMShell: React.FC<{ onBack: () => void; children: React.ReactNode; chudDock?: React.ReactNode }> = ({ onBack, children, chudDock }) => {
+const GMShell: React.FC<{ onBack: () => void; children: React.ReactNode; chudDock?: React.ReactNode; style?: React.CSSProperties }> = ({ onBack, children, chudDock, style }) => {
   const openChud = () => {
     if (typeof window !== "undefined") window.dispatchEvent(new Event("chud-open"));
   };
   return (
-  <div className="gm-shell" style={{ minHeight: "100vh", background: "var(--bg-dark)" }}>
+  <div className="gm-shell" style={{ minHeight: "100vh", background: "var(--bg-dark)", ...style }}>
     <header className="topbar">
-      <button className="ghost-btn" onClick={onBack} aria-label="Back to hub">
-        ← Back to hub
+      <button className="ghost-btn ghost-btn-icon" onClick={onBack} aria-label="Back to hub">
+        <span aria-hidden="true">←</span>
       </button>
       <div className="topbar-title">
         <div className="muted" style={{ fontSize: "0.85rem" }}>Collapse GM Companion</div>
@@ -171,69 +187,55 @@ const HubLanding: React.FC<{
   onModeChange: (mode: Mode) => void;
   onNavigate: (route: Route) => void;
 }> = ({ mode, onModeChange, onNavigate }) => {
-  const cards = useMemo(() => {
-    const base = [
+  const cards = useMemo<HubCard[]>(() => {
+    const base: HubCard[] = [
       {
-        id: "player" as Route,
-        title: "Companion — Player",
+        id: "player",
+        title: "Deck Builder",
         description: "Player-facing tools with deck builder and ops.",
-        cta: "Open Player Companion",
-        subtitle: "Player",
+        audience: "player",
       },
       {
-        id: "player-ops" as Route,
-        title: "Deck Ops — Player",
+        id: "player-ops",
+        title: "Deck Ops",
         description: "Standalone deck operations for the player deck.",
-        cta: "Open Player Deck Ops",
-        subtitle: "Player",
+        audience: "player",
       },
       {
-        id: "gm" as Route,
+        id: "gm",
         title: "Companion — GM",
         description: "GM-only deck tools with pure counts.",
-        cta: "Open GM Companion",
+        audience: "gm",
         subtitle: "GM",
       },
       {
-        id: "gm-ops" as Route,
+        id: "gm-ops",
         title: "Deck Ops — GM",
         description: "Standalone deck operations for the GM deck.",
-        cta: "Open GM Deck Ops",
+        audience: "gm",
         subtitle: "GM",
       },
       {
-        id: "csmatrix" as Route,
+        id: "csmatrix",
         title: "CS Matrix",
         description: "Campaign Support Matrix with draggable nodes.",
-        cta: "Open CS Matrix",
-        subtitle: "Player",
+        audience: "player",
       },
       {
-        id: "chud" as Route,
+        id: "chud",
         title: "cHUD",
         description: "Compact HUD for derived stats.",
-        cta: "Open cHUD",
-        subtitle: "Player",
+        audience: "player",
       },
     ];
-    return base.filter((c) => {
-      if (mode === "gm") return c.subtitle === "GM";
-      return c.subtitle === "Player";
-    });
+    return base.filter((c) => c.audience === mode);
   }, [mode]);
 
   return (
-    <main style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ width: "min(1100px, 100%)", padding: "1.25rem 1rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
-          <div>
-            <h1 style={{ margin: "0 0 0.35rem 0" }}>Collapse Full Build</h1>
-            <p style={{ margin: 0, color: "var(--muted)" }}>
-              Choose a mode to open the companion and deck ops independently.
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Mode:</span>
+    <main className="hub-landing">
+      <div className="hub-landing-content" style={{ width: "min(1100px, 100%)", padding: "1.25rem 1rem" }}>
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <div style={{ display: "flex", gap: 8 }}>
             <button
               className={`mode-toggle ${mode === "player" ? "active" : ""}`}
               onClick={() => onModeChange("player")}
@@ -259,29 +261,30 @@ const HubLanding: React.FC<{
           }}
         >
           {cards.map((card) => (
-            <div
+            <button
               key={card.id}
               style={{
                 border: "1px solid var(--border)",
                 borderRadius: 16,
                 padding: "1rem",
                 background: "var(--surface)",
-                minHeight: 180,
+                minHeight: 126,
                 display: "flex",
                 flexDirection: "column",
-                justifyContent: "space-between",
-                gap: "0.75rem",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.5rem",
+                textAlign: "center",
+                cursor: "pointer",
               }}
+              onClick={() => onNavigate(card.id)}
             >
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-                  <h2 style={{ margin: 0 }}>{card.title}</h2>
-                  <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{card.subtitle}</span>
-                </div>
-                <p style={{ color: "var(--muted)", marginTop: "0.5rem" }}>{card.description}</p>
-              </div>
-              <button onClick={() => onNavigate(card.id)}>{card.cta}</button>
-            </div>
+              <h2 style={{ margin: 0 }}>{card.title}</h2>
+              {card.subtitle ? (
+                <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{card.subtitle}</span>
+              ) : null}
+              <p style={{ color: "var(--muted)", margin: "0.25rem 0" }}>{card.description}</p>
+            </button>
           ))}
         </div>
       </div>
@@ -292,6 +295,8 @@ const HubLanding: React.FC<{
 export default function App() {
   const [route, setRoute] = useState<Route>(() => deriveRoute());
   const [mode, setMode] = useState<Mode>(() => deriveMode());
+  const matrixFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const [matrixState, setMatrixState] = useState({ controlsOpen: false, nodesOpen: false });
 
   const chudDock = route !== "chud" ? <ChudDock basePath={buildPath("")} /> : null;
 
@@ -323,6 +328,34 @@ export default function App() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(MODE_KEY, mode);
   }, [mode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const expectedOrigin = window.location.origin && window.location.origin !== "null" ? window.location.origin : "*";
+    const handleMessage = (event: MessageEvent) => {
+      if (expectedOrigin !== "*" && event.origin !== expectedOrigin) return;
+      const data = event.data;
+      if (!data || data.type !== "collapse-csmatrix-state") return;
+      setMatrixState({
+        controlsOpen: Boolean(data.controlsOpen),
+        nodesOpen: Boolean(data.nodesOpen),
+      });
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
+  const postToMatrix = useCallback((action: "toggle-controls" | "toggle-nodes" | "request-state") => {
+    if (typeof window === "undefined") return;
+    const frameWin = matrixFrameRef.current?.contentWindow;
+    if (!frameWin) return;
+    const targetOrigin = window.location.origin && window.location.origin !== "null" ? window.location.origin : "*";
+    frameWin.postMessage({ target: "csmatrix", action }, targetOrigin);
+  }, []);
+
+  const requestMatrixState = useCallback(() => {
+    postToMatrix("request-state");
+  }, [postToMatrix]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -376,6 +409,7 @@ export default function App() {
           storageKey="collapse.deck-builder.v2"
           showBuilderSections={false}
           showOpsSections={true}
+          lockControlsInOps={false}
         />
       </PlayerShell>
     );
@@ -433,6 +467,7 @@ export default function App() {
           modCapacityAsCount={true}
           showBuilderSections={false}
           showOpsSections={true}
+          lockControlsInOps={false}
         />
       </GMShell>
     );
@@ -456,6 +491,27 @@ export default function App() {
         src={buildPath("csmatrix/index.html")}
         onBack={() => setRoute("hub")}
         note="Campaign Support Matrix (in-app iframe)."
+        actionsClassName="topbar-actions topbar-actions-stack"
+        actions={
+          <>
+            <button
+              className="topbar-pill"
+              onClick={() => postToMatrix("toggle-controls")}
+              aria-pressed={matrixState.controlsOpen}
+            >
+              {matrixState.controlsOpen ? "Hide Controls" : "Show Controls"}
+            </button>
+            <button
+              className="topbar-pill"
+              onClick={() => postToMatrix("toggle-nodes")}
+              aria-pressed={matrixState.nodesOpen}
+            >
+              {matrixState.nodesOpen ? "Hide Nodes" : "Show Nodes"}
+            </button>
+          </>
+        }
+        frameRef={matrixFrameRef}
+        onFrameLoad={requestMatrixState}
       />
     );
   }
